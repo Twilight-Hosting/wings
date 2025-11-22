@@ -228,14 +228,15 @@ func (h *Handler) SendErrorJson(msg Message, err error, shouldLog ...bool) error
 
 	wsm := Message{
 		Event: ErrorEvent,
-		Args:  []string{"an unexpected error was encountered while handling this request"},
+		Args:  []string{err.Error()},
 	}
 
-	if isJWTError || (j != nil && j.HasPermission(PermissionReceiveErrors)) {
-		if isJWTError {
-			wsm.Event = JwtErrorEvent
+	if isJWTError {
+		wsm.Event = JwtErrorEvent
+
+		if j != nil && j.HasPermission(PermissionReceiveErrors) {
+			wsm.Args = []string{"an unexpected error was encountered while handling this request."}
 		}
-		wsm.Args = []string{err.Error()}
 	}
 
 	m, u := h.GetErrorMessage(wsm.Args[0])
