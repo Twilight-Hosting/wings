@@ -2,11 +2,13 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -248,6 +250,15 @@ func (s *Server) CreateEnvironment() error {
 	// Ensure the data directory exists before getting too far through this process.
 	if err := s.EnsureDataDirectoryExists(); err != nil {
 		return err
+	}
+
+	cfg := config.Get()
+	if cfg.System.MachineID.Enable {
+		p := filepath.Join(cfg.System.MachineID.Directory, s.ID())
+		machineID := append(bytes.ReplaceAll([]byte(s.ID()), []byte{'-'}, []byte{}), '\n')
+		if err := os.WriteFile(p, machineID, 0o644); err != nil {
+			return fmt.Errorf("failed to write machine-id (at '%s') for server '%s': %w", p, s.ID(), err)
+		}
 	}
 
 	return s.Environment.Create()

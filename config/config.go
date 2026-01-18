@@ -192,6 +192,12 @@ type SystemConfiguration struct {
 		Directory string `yaml:"directory" default:"/run/wings/etc"`
 	} `yaml:"passwd"`
 
+	MachineID struct {
+		Enable bool `yaml:"enabled" default:"true"`
+
+		Directory string `yaml:"directory" default:"/run/wings/machine-id"`
+	} `yaml:"machine_id"`
+
 	// The amount of time in seconds that can elapse before a server's disk space calculation is
 	// considered stale and a re-check should occur. DANGER: setting this value too low can seriously
 	// impact system performance and cause massive I/O bottlenecks and high CPU usage for the Wings
@@ -649,6 +655,11 @@ func ConfigureDirectories() error {
 		if err := os.MkdirAll(_config.System.Passwd.Directory, 0o755); err != nil {
 			return err
 		}
+
+		log.WithField("path", _config.System.TmpDirectory).Debug("ensuring temporary directory exists")
+		if err := os.MkdirAll(_config.System.TmpDirectory, 0o700); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -664,6 +675,13 @@ func EnableLogRotation() error {
 	if !_config.System.EnableLogRotate {
 		log.Info("skipping log rotate configuration, disabled in wings config file")
 		return nil
+	}
+
+	if _config.System.MachineID.Enable {
+		log.WithField("path", _config.System.MachineID.Directory).Debug("ensuring machine-id directory exists")
+		if err := os.MkdirAll(_config.System.MachineID.Directory, 0o755); err != nil {
+			return err
+		}
 	}
 
 	if st, err := os.Stat("/etc/logrotate.d"); err != nil && !os.IsNotExist(err) {
