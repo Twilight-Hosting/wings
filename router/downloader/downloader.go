@@ -69,7 +69,11 @@ func init() {
 		//
 		// We'll re-evaluate this down the road if needed.
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
+			if strings.HasPrefix(via[0].URL.String(), "https://github.com/") && len(via) < 2 {
+				return nil
+			} else {
+				return http.ErrUseLastResponse
+			}
 		},
 	}
 }
