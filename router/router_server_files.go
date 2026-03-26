@@ -441,6 +441,8 @@ func postServerDecompressFiles(c *gin.Context) {
 		RootPath string `json:"root"`
 		File     string `json:"file"`
 	}
+	var files []string
+
 	if err := c.BindJSON(&data); err != nil {
 		return
 	}
@@ -460,7 +462,7 @@ func postServerDecompressFiles(c *gin.Context) {
 	}
 
 	lg.Info("starting file decompression")
-	if err := s.Filesystem().DecompressFile(context.Background(), data.RootPath, data.File); err != nil {
+	if err, files = s.Filesystem().DecompressFile(context.Background(), data.RootPath, data.File); err != nil {
 		// If the file is busy for some reason just return a nicer error to the user since there is not
 		// much we specifically can do. They'll need to stop the running server process in order to overwrite
 		// a file like this.
@@ -474,7 +476,8 @@ func postServerDecompressFiles(c *gin.Context) {
 		middleware.CaptureAndAbort(c, err)
 		return
 	}
-	c.Status(http.StatusNoContent)
+
+	c.JSON(http.StatusAccepted, files)
 }
 
 type chmodFile struct {

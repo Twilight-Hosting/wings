@@ -30,7 +30,7 @@ func TestFilesystem_DecompressFile(t *testing.T) {
 				g.Assert(err).IsNil()
 
 				// decompress
-				err = fs.DecompressFile(context.Background(), "/", "test."+ext)
+				err, _ = fs.DecompressFile(context.Background(), "/", "test."+ext)
 				g.Assert(err).IsNil()
 
 				// make sure everything is where it is supposed to be

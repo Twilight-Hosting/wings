@@ -139,10 +139,10 @@ func (fs *Filesystem) SpaceAvailableForDecompression(ctx context.Context, dir st
 // all the files within the given archive and ensure that there is not a
 // zip-slip attack being attempted by validating that the final path is within
 // the server data directory.
-func (fs *Filesystem) DecompressFile(ctx context.Context, dir string, file string) error {
+func (fs *Filesystem) DecompressFile(ctx context.Context, dir string, file string) (error, []string) {
 	f, err := fs.unixFS.Open(filepath.Join(dir, file))
 	if err != nil {
-		return err
+		return err, nil
 	}
 	defer f.Close()
 
@@ -150,9 +150,9 @@ func (fs *Filesystem) DecompressFile(ctx context.Context, dir string, file strin
 	format, input, err := archives.Identify(ctx, filepath.Base(file), f)
 	if err != nil {
 		if errors.Is(err, archives.NoMatch) {
-			return newFilesystemError(ErrCodeUnknownArchive, err)
+			return newFilesystemError(ErrCodeUnknownArchive, err), nil
 		}
-		return err
+		return err, nil
 	}
 
 	return fs.extractStream(ctx, extractStreamOptions{
@@ -172,11 +172,14 @@ func (fs *Filesystem) ExtractStreamUnsafe(ctx context.Context, dir string, r io.
 		}
 		return err
 	}
-	return fs.extractStream(ctx, extractStreamOptions{
+
+	err, _ = fs.extractStream(ctx, extractStreamOptions{
 		Directory: dir,
 		Format:    format,
 		Reader:    input,
 	})
+
+	return err
 }
 
 type extractStreamOptions struct {
@@ -190,7 +193,9 @@ type extractStreamOptions struct {
 	Reader io.Reader
 }
 
-func (fs *Filesystem) extractStream(ctx context.Context, opts extractStreamOptions) error {
+func (fs *Filesystem) extractStream(ctx context.Context, opts extractStreamOptions) (error, []string) {
+	var files []string
+
 	// See if it's a compressed archive, such as TAR or a ZIP
 	ex, ok := opts.Format.(archives.Extractor)
 	if !ok {
@@ -198,7 +203,7 @@ func (fs *Filesystem) extractStream(ctx context.Context, opts extractStreamOptio
 		// .log.gz, .sql.gz, and so on
 		de, ok := opts.Format.(archives.Decompressor)
 		if !ok {
-			return nil
+			return nil, nil
 		}
 
 		// Strip the compression suffix
@@ -206,19 +211,19 @@ func (fs *Filesystem) extractStream(ctx context.Context, opts extractStreamOptio
 
 		// Make sure it's not ignored
 		if err := fs.IsIgnored(p); err != nil {
-			return nil
+			return nil, nil
 		}
 
 		reader, err := de.OpenReader(opts.Reader)
 		if err != nil {
-			return err
+			return err, nil
 		}
 		defer reader.Close()
 
 		// Open the file for creation/writing
 		f, err := fs.unixFS.OpenFile(p, ufs.O_WRONLY|ufs.O_CREATE, 0o644)
 		if err != nil {
-			return err
+			return err, nil
 		}
 		defer f.Close()
 
@@ -230,12 +235,12 @@ func (fs *Filesystem) extractStream(ctx context.Context, opts extractStreamOptio
 
 				// Check quota before writing the chunk
 				if quotaErr := fs.HasSpaceFor(int64(n)); quotaErr != nil {
-					return quotaErr
+					return quotaErr, nil
 				}
 
 				// Write the chunk
 				if _, writeErr := f.Write(buf[:n]); writeErr != nil {
-					return writeErr
+					return writeErr, nil
 				}
 
 				// Add to quota
@@ -249,11 +254,12 @@ func (fs *Filesystem) extractStream(ctx context.Context, opts extractStreamOptio
 				}
 
 				// Return any other
-				return err
+				return err, nil
 			}
 		}
 
-		return nil
+		files = append(files, p)
+		return nil, files
 	}
 
 	// Decompress and extract archive
@@ -278,6 +284,8 @@ func (fs *Filesystem) extractStream(ctx context.Context, opts extractStreamOptio
 		if err := fs.Chtimes(p, f.ModTime(), f.ModTime()); err != nil {
 			return wrapError(err, opts.FileName)
 		}
+
+		files = append(files, p)
 		return nil
-	})
+	}), files
 }
