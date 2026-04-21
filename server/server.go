@@ -387,3 +387,75 @@ func (s *Server) ToAPIResponse() APIResponse {
 		Configuration: *s.Config(),
 	}
 }
+
+type ResourceResponse struct {
+	Id          string  `json:"id"`
+	MemoryLimit int64   `json:"mem_limit"`
+	DiskLimit   int64   `json:"disk_limit"`
+	CpuLimit    int64   `json:"cpu_limit"`
+	MemoryUsed  int64   `json:"mem_used"`
+	DiskUsed    int64   `json:"disk_used"`
+	CpuUsed     float64 `json:"cpu_used"`
+}
+
+func (s *Server) ToResourceResponse() ResourceResponse {
+	return ResourceResponse{
+		Id:          s.ID(),
+		MemoryLimit: s.MemoryLimit(),
+		DiskLimit:   s.DiskSpace(),
+		CpuLimit:    s.Config().Build.CpuLimit / 100,
+		MemoryUsed:  int64(s.resources.Memory),
+		DiskUsed:    s.resources.Disk,
+		CpuUsed:     s.resources.CpuAbsolute,
+	}
+}
+
+type Memory struct {
+	MemTotal     int
+	MemFree      int
+	MemAvailable int
+}
+
+func ReadMemoryStats() Memory {
+	file, err := os.Open("/proc/meminfo")
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+	bufio.NewScanner(file)
+	scanner := bufio.NewScanner(file)
+	res := Memory{}
+	for scanner.Scan() {
+		key, value := parseLine(scanner.Text())
+		switch key {
+		case "MemTotal:":
+			res.MemTotal = value
+		case "MemFree:":
+			res.MemFree = value
+		case "MemAvailable:":
+			res.MemAvailable = value
+		}
+	}
+
+	return res
+}
+
+func parseLine(raw string) (key string, value int) {
+	fmt.Println(raw)
+	text := strings.ReplaceAll(raw[:len(raw)-2], " ", "")
+	keyValue := strings.Split(text, ":")
+	return keyValue[0], toInt(keyValue[1])
+}
+
+func toInt(raw string) int {
+	if raw == "" {
+		return 0
+	}
+
+	res, err := strconv.Atoi(raw)
+	if err != nil {
+		panic(err)
+	}
+
+	return res
+}

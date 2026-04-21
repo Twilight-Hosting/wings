@@ -674,6 +674,11 @@ func ConfigureDirectories() error {
 		if err := os.MkdirAll(_config.System.Passwd.Directory, 0o755); err != nil {
 			return err
 		}
+
+		log.WithField("path", _config.System.TmpDirectory).Debug("ensuring temporary directory exists")
+		if err := os.MkdirAll(_config.System.TmpDirectory, 0o700); err != nil {
+			return err
+		}
 	}
 
 	if _config.System.MachineID.Enable {
@@ -696,6 +701,13 @@ func EnableLogRotation() error {
 	if !_config.System.EnableLogRotate {
 		log.Info("skipping log rotate configuration, disabled in wings config file")
 		return nil
+	}
+
+	if _config.System.MachineID.Enable {
+		log.WithField("path", _config.System.MachineID.Directory).Debug("ensuring machine-id directory exists")
+		if err := os.MkdirAll(_config.System.MachineID.Directory, 0o755); err != nil {
+			return err
+		}
 	}
 
 	if st, err := os.Stat("/etc/logrotate.d"); err != nil && !os.IsNotExist(err) {
