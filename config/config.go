@@ -177,11 +177,11 @@ type SystemConfiguration struct {
 	Passwd struct {
 		// Enable controls whether generated passwd files should be mounted into containers.
 		//
-		// By default this option is disabled and Wings will not mount any additional passwd
-		// files into containers.
+		// By default this option is disabled and Wings will not mount any
+		// additional passwd files into containers.
 		Enable bool `yaml:"enabled" default:"false"`
 
-		// Directory is the directory on disk where the generated files will be stored.
+		// Directory is the directory on disk where the generated passwd files will be stored.
 		// This directory may be temporary as it will be re-created whenever Wings is started.
 		//
 		// This path **WILL** be both written to by Wings and mounted into containers created by
@@ -192,9 +192,23 @@ type SystemConfiguration struct {
 		Directory string `yaml:"directory" default:"/run/wings/etc"`
 	} `yaml:"passwd"`
 
+	// MachineID controls the mounting of a generated `/etc/machine-id` file into containers started by Wings.
 	MachineID struct {
+		// Enable controls whether a generated machine-id file should be mounted
+		// into containers.
+		//
+		// By default this option is enabled and Wings will mount an additional
+		// machine-id file into containers.
 		Enable bool `yaml:"enabled" default:"true"`
 
+		// Directory is the directory on disk where the generated machine-id files will be stored.
+		// This directory may be temporary as it will be re-created whenever Wings is started.
+		//
+		// This path **WILL** be both written to by Wings and mounted into containers created by
+		// Wings. If you are running Wings itself in a container, this path will need to be mounted
+		// into the Wings container as the exact path on the host, which should match the value
+		// specified here. If you are using SELinux, you will need to make sure this file has the
+		// correct SELinux context in order for containers to use it.
 		Directory string `yaml:"directory" default:"/run/wings/machine-id"`
 	} `yaml:"machine_id"`
 
@@ -640,6 +654,11 @@ func ConfigureDirectories() error {
 		return err
 	}
 
+	log.WithField("path", _config.System.TmpDirectory).Debug("ensuring temporary data directory exists")
+	if err := os.MkdirAll(_config.System.TmpDirectory, 0o700); err != nil {
+		return err
+	}
+
 	log.WithField("path", _config.System.ArchiveDirectory).Debug("ensuring archive data directory exists")
 	if err := os.MkdirAll(_config.System.ArchiveDirectory, 0o700); err != nil {
 		return err
@@ -658,6 +677,13 @@ func ConfigureDirectories() error {
 
 		log.WithField("path", _config.System.TmpDirectory).Debug("ensuring temporary directory exists")
 		if err := os.MkdirAll(_config.System.TmpDirectory, 0o700); err != nil {
+			return err
+		}
+	}
+
+	if _config.System.MachineID.Enable {
+		log.WithField("path", _config.System.MachineID.Directory).Debug("ensuring machine-id directory exists")
+		if err := os.MkdirAll(_config.System.MachineID.Directory, 0o755); err != nil {
 			return err
 		}
 	}

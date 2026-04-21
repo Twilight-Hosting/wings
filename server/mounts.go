@@ -47,12 +47,16 @@ func (s *Server) Mounts() []environment.Mount {
 	}
 
 	if cfg.System.MachineID.Enable {
+		// Hytale wants a machine-id in order to encrypt tokens for the server.
+		// So add a mount to `/etc/machine-id` to a source that contains the
+		// server's UUID without any dashes.
 		m = append(m, environment.Mount{
 			Source:   filepath.Join(cfg.System.MachineID.Directory, s.ID()),
 			Target:   "/etc/machine-id",
 			ReadOnly: true,
 		})
 	}
+
 	// Also include any of this server's custom mounts when returning them.
 	return append(m, s.customMounts()...)
 }

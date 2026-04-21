@@ -2,7 +2,10 @@ package router
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"crypto/sha512"
+	"encoding/hex"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -12,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"emperror.dev/errors"
 	"github.com/apex/log"
@@ -72,6 +76,70 @@ func getServerFileContents(c *gin.Context) {
 		middleware.CaptureAndAbort(c, err)
 		return
 	}
+}
+
+// getServerFileFingerprints returns the fingerprints of some files on the server.
+func getServerFileFingerprints(c *gin.Context) {
+	s := middleware.ExtractServer(c)
+	paths := c.QueryArray("files")
+	algorithm := c.Query("algorithm")
+
+	if algorithm != "sha512" && algorithm != "curseforge" {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid algorithm. Must be sha512 or curseforge.",
+		})
+	}
+	fingerprints := make(map[string]string)
+	mutex := sync.RWMutex{}
+	wg := &sync.WaitGroup{}
+	wg.Add(len(paths))
+
+	for _, path := range paths {
+		path := path
+		go func() {
+			defer wg.Done()
+			p := strings.TrimLeft(path, "/")
+			f, st, err := s.Filesystem().File(p)
+			if err != nil {
+				mutex.Lock()
+				fingerprints[path] = ""
+				mutex.Unlock()
+				return
+			}
+			defer f.Close()
+			// Don't allow a named pipe to be opened.
+			//
+			// @see https://github.com/pterodactyl/panel/issues/4059
+			if st.Mode()&os.ModeNamedPipe != 0 {
+				return
+			}
+
+			r := bufio.NewReader(f)
+			buf := new(bytes.Buffer)
+			if _, err = buf.ReadFrom(r); err != nil {
+				return
+			}
+
+			hash := ""
+
+			if algorithm == "sha512" {
+				hashBytes := sha512.Sum512(buf.Bytes())
+				hash = hex.EncodeToString(hashBytes[:])
+			} else if algorithm == "curseforge" {
+				hash = filesystem.CalculateCurseForgeFingerprint(buf)
+			}
+
+			mutex.Lock()
+			fingerprints[path] = hash
+			mutex.Unlock()
+		}()
+	}
+
+	wg.Wait()
+
+	c.JSON(http.StatusOK, gin.H{
+		"fingerprints": fingerprints,
+	})
 }
 
 // Returns the contents of a directory for a server.
@@ -328,13 +396,15 @@ func postServerPullRemoteFile(c *gin.Context) {
 	download := func() error {
 		s.Log().WithField("download_id", dl.Identifier).WithField("url", u.String()).Info("starting pull of remote file to disk")
 		if err := dl.Execute(); err != nil {
-			s.Log().WithField("download_id", dl.Identifier).WithField("error", err).Error("failed to pull remote file")
+			if !downloader.IsDownloadError(err) {
+				s.Log().WithField("download_id", dl.Identifier).WithField("error", err).Error("failed to pull remote file")
+			}
 			return err
-		} else {
-			s.Log().WithField("download_id", dl.Identifier).Info("completed pull of remote file")
 		}
+		s.Log().WithField("download_id", dl.Identifier).Info("completed pull of remote file")
 		return nil
 	}
+
 	if !data.Foreground {
 		go func() {
 			_ = download()
@@ -346,6 +416,21 @@ func postServerPullRemoteFile(c *gin.Context) {
 	}
 
 	if err := download(); err != nil {
+		if downloader.IsDownloadError(err) {
+			var message = "The URL or IP address provided could not be resolved to a valid destination."
+			if errors.Is(err, downloader.ErrDownloadFailed) {
+				s.Log().WithField("identifier", dl.Identifier).WithField("error", err).Warn("failed to download remote file")
+
+				message = "An error was encountered while trying to download this file. Please try again later."
+			}
+
+			c.JSON(http.StatusBadRequest, gin.H{
+				"identifier": dl.Identifier,
+				"message":    message,
+			})
+
+			return
+		}
 		middleware.CaptureAndAbort(c, err)
 		return
 	}
